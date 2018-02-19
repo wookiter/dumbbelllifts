@@ -1,0 +1,234 @@
+---
+title: "Project Dumbbell Lifts"
+author: "Lukasz Sadalski"
+date: "19 02 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+#The project
+
+This project is Coursera Practical Machine Learning course project. 
+
+The goal of the project is to predict the manner in which people did the exercise - dumbbell lift. Dataset consists of many variables and "classe" variable to predict.
+
+The tasks are to:
+- build the model
+- explain used cross validation
+- calculate out of sample error
+- explain the choices made
+- predict 20 different cases from testing dataset
+
+Data is available thanks to http://groupware.les.inf.puc-rio.br/har
+
+```{r}
+library(caret)
+library(randomForest)
+library(formattable)
+library(corrplot)
+```
+
+###Loading data
+
+```{r}
+setwd("/Users/wookiter/dumbbelllifts")
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+dim(training)
+dim(testing)
+```
+
+###Cleaning the data
+
+I remove unnecessary columns.
+
+```{r}
+out <- grep ("X|timestamp|window|user_name", colnames(training))
+training <- training[,-out]
+testing <- testing[,-out]
+dim(training)
+dim(testing)
+```
+
+I remove columns with no values.
+
+```{r}
+
+na_count <-sapply(training, function(y) sum(is.na(y)))
+training <- training[,which(na_count == 0)]
+testing <- testing[,which(na_count == 0)]
+dim(training)
+dim(testing)
+```
+
+I remove other unwanted columns with mostly missing values or DIV/0 values
+
+```{r}
+
+out <- c(
+"kurtosis_roll_belt",
+"kurtosis_picth_belt",
+"kurtosis_yaw_belt",
+"skewness_roll_belt",
+"skewness_roll_belt.1",
+"skewness_yaw_belt",
+"max_yaw_belt",
+"min_yaw_belt", 
+"amplitude_yaw_belt",
+"kurtosis_roll_arm",
+"kurtosis_picth_arm",
+"kurtosis_yaw_arm",
+"skewness_roll_arm",
+"skewness_pitch_arm",
+"skewness_yaw_arm",
+"kurtosis_roll_dumbbell",
+"kurtosis_picth_dumbbell",
+"kurtosis_yaw_dumbbell",
+"skewness_roll_dumbbell",
+"skewness_pitch_dumbbell",
+"skewness_yaw_dumbbell",
+"max_yaw_dumbbell",
+"min_yaw_dumbbell",
+"amplitude_yaw_dumbbell",
+"kurtosis_roll_forearm",
+"kurtosis_picth_forearm",
+"kurtosis_yaw_forearm",
+"skewness_roll_forearm",
+"skewness_pitch_forearm",
+"skewness_yaw_forearm",
+"min_yaw_forearm", 
+"max_yaw_forearm",
+"amplitude_yaw_forearm"
+)
+
+training <- training[,-match (out, colnames(training))]
+testing <- testing[,-match (out, colnames(testing))]
+dim(training)
+dim(testing)
+
+# corrplot(cor(testing), order = "hclust", number.cex=0.75, tl.col = "black", cl.ratio=0.2, tl.cex=0.3)
+
+```
+
+### Creating training and validation set from training set
+
+I chose random forests as they work good with many variables. As random forests sometimes overfits the data I decided to split training set into training and validation to check chosen model on it before using with test dataset.
+I decided to use a few models and decide later which to choose for test dataset.
+
+```{r}
+set.seed(212)
+inTrain <- createDataPartition(y=training$classe, p=0.8, list=FALSE)
+train <- training[inTrain,]
+validation <- training[-inTrain,]
+
+dim (train)
+dim (validation)
+
+summaryM <- setNames(data.frame(matrix(ncol = 4, nrow = 0)), c("Model", "Accuracy %", "Out of sample error %", "Processing time - sec"))
+
+```
+
+### Building the model with rf with default values
+
+```{r}
+ptm <- proc.time()
+model <- "caret, rf, cv=10, ntree=500"
+fitRFcaret <- train(classe ~ .,method="rf", data = train)
+print (fitRFcaret$finalModel)
+#fitRFcaret
+predRFcaret <-predict (fitRFcaret, validation)
+accuracyRFcaret <- as.numeric((confusionMatrix(validation$classe, predRFcaret))$overall[1])
+oos <- 1 - accuracyRFcaret
+accuracyRFcaretp <- round(accuracyRFcaret*100,2)
+oosp <- round(oos*100,2)
+proctimeRFcaret <- round(as.numeric((proc.time() - ptm)[1]),2)
+summaryM[1,] <- c(model, accuracyRFcaretp, oosp, proctimeRFcaret)
+```
+
+### Building the model with rf with changed parameters, ntree = 250, cv = 5
+
+```{r}
+ptm <- proc.time()
+model <- "caret, rf, cv=5, ntree=250"
+ctrl <- trainControl(method = "cv", number = 5)
+fitRFcaret250 <- train(classe ~ .,method="rf", data = train, ntree = 250, trControl = ctrl)
+print (fitRFcaret250$finalModel)
+#fitRFcaret250
+predRFcaret250 <-predict (fitRFcaret250, validation)
+accuracyRFcaret250 <- as.numeric((confusionMatrix(validation$classe, predRFcaret250))$overall[1])
+oos <- 1 - accuracyRFcaret250
+accuracyRFcaret250p <- round(accuracyRFcaret250*100,2)
+oosp <- round(oos*100,2)
+proctimeRFcaret250 <- round(as.numeric((proc.time() - ptm)[1]),2)
+summaryM[2,] <- c(model, accuracyRFcaret250p, oosp, proctimeRFcaret250)
+
+```
+
+### Building the model with randomForest package and, cv=10, ntree=500
+
+```{r}
+library(randomForest)
+model <- "randomForest, rf, cv=10, ntree=500"
+ptm <- proc.time()
+ctrl <- trainControl(method = "cv", number = 10)
+fitRF500 <- randomForest(classe ~ .,method="rf", data = train, ntree = 500, trControl = ctrl)
+print (fitRF500$finalModel)
+#fitRF500
+predRF500 <-predict (fitRF500, validation)
+confusionMatrix(validation$classe, predRF500)
+proc.time() - ptm
+accuracyRF500 <- as.numeric((confusionMatrix(validation$classe, predRF500))$overall[1])
+oos <- 1 - accuracyRF500
+accuracyRF500p <- round(accuracyRF500*100,2)
+oosp <- round(oos*100,2)
+proctimeRF500 <- round(as.numeric((proc.time() - ptm)[1]),2)
+summaryM[3,] <- c(model, accuracyRF500p, oosp, proctimeRF500)
+```
+
+```{r}
+library(randomForest)
+model <- "randomForest, rf, cv=10, ntree=250"
+ptm <- proc.time()
+ctrl <- trainControl(method = "cv", number = 10)
+fitRF250 <- randomForest(classe ~ .,method="rf", data = train, ntree = 250, trControl = ctrl)
+print (fitRF250$finalModel)
+#fitRF250
+predRF250 <-predict (fitRF250, validation)
+confusionMatrix(validation$classe, predRF250)
+proc.time() - ptm
+accuracyRF250 <- as.numeric((confusionMatrix(validation$classe, predRF250))$overall[1])
+oos <- 1 - accuracyRF250
+accuracyRF250p <- round(accuracyRF250*100,2)
+oosp <- round(oos*100,2)
+proctimeRF250 <- round(as.numeric((proc.time() - ptm)[1]),2)
+summaryM[4,] <- c(model, accuracyRF250p, oosp, proctimeRF250)
+```
+
+### Summary of models
+
+```{r}
+formattable(summaryM)
+```
+
+### Final model
+I chose finally randomForest model with the highest accuracy and still one of the fastest.
+As it's accurate and relatively fast I am leaving all the variables without tuning.
+
+```{r}
+par(mfrow=c(1,2))
+varImpPlot(fitRF500,main='Variable Importance Plot', type=2, cex=0.5)
+plot(fitRF500, main='Error vs Number of Trees')
+```
+
+### Prediction
+
+Below is the prediction using randomForest model with ntree=250 on test dataset
+
+```{r}
+predtest <- predict (fitRF500, testing)
+predtest
+```
